@@ -1,0 +1,15 @@
+# Node
+node_modules/
+frontend/dist/
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# Local
+.DS_Store
+*.local
+
+#IDEs and editors
+.vscode/
+.idea/
