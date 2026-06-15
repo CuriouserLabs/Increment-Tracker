@@ -2,5 +2,6 @@
 import type { ConnectionView } from "./ConnectionView";
 import type { FieldMapping } from "./FieldMapping";
 import type { Increment } from "./Increment";
+import type { SprintNaming } from "./SprintNaming";
 
-export type SettingsView = { connection: ConnectionView | null, fieldMapping: FieldMapping | null, projects: Array<string>, blockedStatuses: Array<string>, epicChildrenClause: string | null, increments: Array<Increment>, activeIncrementId: number | null, };
+export type SettingsView = { connection: ConnectionView | null, fieldMapping: FieldMapping | null, projects: Array<string>, blockedStatuses: Array<string>, epicChildrenClause: string | null, sprintNaming: SprintNaming, increments: Array<Increment>, activeIncrementId: number | null, };

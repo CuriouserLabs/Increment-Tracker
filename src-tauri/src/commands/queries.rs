@@ -5,8 +5,9 @@
 use chrono::Utc;
 use tauri::State;
 
-use crate::domain::model::{Epic, Issue, Sprint};
+use crate::domain::model::{Epic, Increment, Issue, Sprint};
 use crate::domain::progress::{breakdown, expected_progress};
+use crate::domain::sprint_naming::{self, SprintNaming};
 use crate::domain::view::*;
 use crate::domain::{insights, spillover, timeline};
 use crate::error::{AppError, AppResult};
@@ -16,6 +17,26 @@ use crate::AppState;
 fn load(state: &State<'_, AppState>, increment_id: i64) -> AppResult<IncrementBundle> {
     let conn = state.db.lock().unwrap();
     cache::load_bundle(&conn, increment_id)
+}
+
+fn load_sprint_naming(state: &State<'_, AppState>) -> SprintNaming {
+    let conn = state.db.lock().unwrap();
+    super::load_json_setting(&conn, super::KEY_SPRINT_NAMING)
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+}
+
+/// Sprints belonging to the increment in view. Spilled issues drag along old
+/// sprints from previous increments; we keep only the current ones where we
+/// display "the increment's sprints" (the spillover report keeps showing the
+/// old ones, since that's its job).
+fn increment_sprints(
+    increment: &Increment,
+    sprints: Vec<Sprint>,
+    naming: &SprintNaming,
+) -> Vec<Sprint> {
+    sprint_naming::filter_to_increment(increment, sprints, naming)
 }
 
 fn epic_issues<'a>(issues: &'a [Issue], epic_key: &str) -> Vec<Issue> {
@@ -28,10 +49,13 @@ fn epic_issues<'a>(issues: &'a [Issue], epic_key: &str) -> Vec<Issue> {
 
 #[tauri::command]
 pub fn get_dashboard(state: State<'_, AppState>, increment_id: i64) -> AppResult<DashboardData> {
+    let naming = load_sprint_naming(&state);
     let bundle = load(&state, increment_id)?;
     let now = Utc::now();
     let today = now.date_naive();
     let inc = &bundle.increment;
+    // Drop old sprints that spilled issues dragged in from prior increments.
+    let sprints = increment_sprints(inc, bundle.sprints, &naming);
 
     let b = breakdown(&bundle.issues);
     let expected = expected_progress(inc.start_date, inc.end_date, today);
@@ -75,10 +99,10 @@ pub fn get_dashboard(state: State<'_, AppState>, increment_id: i64) -> AppResult
     Ok(DashboardData {
         kpis,
         gantt: timeline::gantt(inc, &bundle.epics, &bundle.issues, today),
-        burnup: timeline::burnup(inc, &bundle.sprints, &bundle.issues, &bundle.snapshots, now),
-        sprint_completion: timeline::sprint_completion(&bundle.sprints, &bundle.issues),
-        insights: insights::generate(inc, &bundle.epics, &bundle.issues, &bundle.sprints, today),
-        sprints: sorted_sprints(bundle.sprints),
+        burnup: timeline::burnup(inc, &sprints, &bundle.issues, &bundle.snapshots, now),
+        sprint_completion: timeline::sprint_completion(&sprints, &bundle.issues),
+        insights: insights::generate(inc, &bundle.epics, &bundle.issues, &sprints, today),
+        sprints: sorted_sprints(sprints),
         last_synced: bundle.last_synced,
         increment: bundle.increment,
     })
@@ -86,14 +110,16 @@ pub fn get_dashboard(state: State<'_, AppState>, increment_id: i64) -> AppResult
 
 #[tauri::command]
 pub fn get_epics(state: State<'_, AppState>, increment_id: i64) -> AppResult<Vec<EpicListRow>> {
+    let naming = load_sprint_naming(&state);
     let bundle = load(&state, increment_id)?;
     let today = Utc::now().date_naive();
     let inc = &bundle.increment;
+    let sprints = increment_sprints(inc, bundle.sprints, &naming);
 
     let mut rows: Vec<EpicListRow> = bundle
         .epics
         .iter()
-        .map(|e| epic_row(e, &bundle.issues, &bundle.sprints, inc, today))
+        .map(|e| epic_row(e, &bundle.issues, &sprints, inc, today))
         .collect();
     rows.sort_by(|a, b| b.breakdown.total_sp.partial_cmp(&a.breakdown.total_sp).unwrap());
     Ok(rows)
@@ -105,6 +131,7 @@ pub fn get_epic_detail(
     increment_id: i64,
     epic_key: String,
 ) -> AppResult<EpicDetail> {
+    let naming = load_sprint_naming(&state);
     let bundle = load(&state, increment_id)?;
     let epic = bundle
         .epics
@@ -129,8 +156,7 @@ pub fn get_epic_detail(
         .flat_map(|i| i.sprints.iter().map(|l| l.sprint_id))
         .collect();
     let sprints: Vec<Sprint> = sorted_sprints(
-        bundle
-            .sprints
+        increment_sprints(&bundle.increment, bundle.sprints, &naming)
             .into_iter()
             .filter(|s| referenced.contains(&s.id))
             .collect(),
@@ -152,8 +178,10 @@ pub fn get_sprints(
     state: State<'_, AppState>,
     increment_id: i64,
 ) -> AppResult<Vec<SprintCompletionPoint>> {
+    let naming = load_sprint_naming(&state);
     let bundle = load(&state, increment_id)?;
-    Ok(timeline::sprint_completion(&bundle.sprints, &bundle.issues))
+    let sprints = increment_sprints(&bundle.increment, bundle.sprints, &naming);
+    Ok(timeline::sprint_completion(&sprints, &bundle.issues))
 }
 
 #[tauri::command]
