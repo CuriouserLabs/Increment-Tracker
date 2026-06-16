@@ -42,6 +42,7 @@ pub fn run() {
             commands::connection::save_projects,
             commands::settings::get_settings,
             commands::settings::save_blocked_statuses,
+            commands::settings::save_sprint_naming,
             commands::settings::save_epic_children_clause,
             commands::settings::list_increments,
             commands::settings::save_increment,

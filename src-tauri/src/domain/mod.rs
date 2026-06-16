@@ -7,5 +7,6 @@ pub mod mapper;
 pub mod model;
 pub mod progress;
 pub mod spillover;
+pub mod sprint_naming;
 pub mod timeline;
 pub mod view;

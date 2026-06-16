@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::domain::model::Increment;
+use crate::domain::sprint_naming::SprintNaming;
 use crate::jira::auth::AuthMode;
 use crate::jira::fields::FieldMapping;
 
@@ -66,6 +67,7 @@ pub struct SettingsView {
     pub projects: Vec<String>,
     pub blocked_statuses: Vec<String>,
     pub epic_children_clause: Option<String>,
+    pub sprint_naming: SprintNaming,
     pub increments: Vec<Increment>,
     #[ts(type = "number | null")]
     pub active_increment_id: Option<i64>,

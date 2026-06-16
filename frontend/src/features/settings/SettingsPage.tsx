@@ -13,6 +13,8 @@ export function SettingsPage() {
   const qc = useQueryClient();
   const [blocked, setBlocked] = useState<string | null>(null);
   const [clause, setClause] = useState<string | null>(null);
+  const [sprintPattern, setSprintPattern] = useState<string | null>(null);
+  const [sprintsPer, setSprintsPer] = useState<string | null>(null);
 
   if (isLoading) return <div className="empty">Loading settings…</div>;
   if (error) return <div className="error-banner">{String(error)}</div>;
@@ -21,12 +23,19 @@ export function SettingsPage() {
   const connected = !!settings.connection;
   const blockedValue = blocked ?? settings.blockedStatuses.join(", ");
   const clauseValue = clause ?? settings.epicChildrenClause ?? "";
+  const sprintPatternValue = sprintPattern ?? settings.sprintNaming.pattern;
+  const sprintsPerValue = sprintsPer ?? String(settings.sprintNaming.sprintsPerIncrement);
 
   const saveAdvanced = async () => {
     await api.saveBlockedStatuses(
       blockedValue.split(",").map((s) => s.trim()).filter(Boolean),
     );
     await api.saveEpicChildrenClause(clauseValue.trim() || null);
+    const perParsed = parseInt(sprintsPerValue, 10);
+    await api.saveSprintNaming({
+      pattern: sprintPatternValue.trim() || settings.sprintNaming.pattern,
+      sprintsPerIncrement: Number.isFinite(perParsed) && perParsed > 0 ? perParsed : 6,
+    });
     qc.invalidateQueries();
   };
 
@@ -65,10 +74,33 @@ export function SettingsPage() {
                 value={clauseValue}
                 onChange={(e) => setClause(e.target.value)}
               />
+              <label>Sprint name pattern</label>
+              <input
+                className="input"
+                placeholder={"(\\d+)\\s*:\\s*(\\d+)"}
+                value={sprintPatternValue}
+                onChange={(e) => setSprintPattern(e.target.value)}
+              />
+              <label>Sprints per increment</label>
+              <input
+                className="input"
+                type="number"
+                min={1}
+                placeholder="6"
+                value={sprintsPerValue}
+                onChange={(e) => setSprintsPer(e.target.value)}
+              />
             </div>
             <p className="faint">
               The children clause template receives the epic keys as{" "}
               <code>{"{keys}"}</code>.
+            </p>
+            <p className="faint">
+              Spilled issues carry old sprints from previous increments. The sprint
+              pattern identifies which increment a sprint belongs to — a regex with two
+              capture groups (increment number, then sprint number). The default matches
+              names like <code>Pegasus 25:2</code> (increment 25, sprint 2); only sprints
+              of the increment in view are shown as its sprints.
             </p>
             <button className="btn mt" onClick={saveAdvanced}>
               Save advanced settings

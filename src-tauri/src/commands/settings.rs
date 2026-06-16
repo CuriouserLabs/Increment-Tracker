@@ -10,8 +10,9 @@ use crate::AppState;
 use super::types::*;
 use super::{
     build_client, load_connection_config, load_json_setting, KEY_BLOCKED_STATUSES,
-    KEY_CONNECTION, KEY_EPIC_CHILDREN_CLAUSE, KEY_FIELD_MAPPING, KEY_PROJECTS,
+    KEY_CONNECTION, KEY_EPIC_CHILDREN_CLAUSE, KEY_FIELD_MAPPING, KEY_PROJECTS, KEY_SPRINT_NAMING,
 };
+use crate::domain::sprint_naming::SprintNaming;
 
 pub const DEFAULT_BLOCKED_STATUSES: &[&str] = &["Blocked", "On Hold"];
 
@@ -39,6 +40,7 @@ pub fn get_settings(state: State<'_, AppState>) -> AppResult<SettingsView> {
         blocked_statuses: load_json_setting(&conn, KEY_BLOCKED_STATUSES)?
             .unwrap_or_else(|| DEFAULT_BLOCKED_STATUSES.iter().map(|s| s.to_string()).collect()),
         epic_children_clause: db::get_setting(&conn, KEY_EPIC_CHILDREN_CLAUSE)?,
+        sprint_naming: load_json_setting(&conn, KEY_SPRINT_NAMING)?.unwrap_or_default(),
         increments,
         active_increment_id,
     })
@@ -48,6 +50,12 @@ pub fn get_settings(state: State<'_, AppState>) -> AppResult<SettingsView> {
 pub fn save_blocked_statuses(state: State<'_, AppState>, statuses: Vec<String>) -> AppResult<()> {
     let conn = state.db.lock().unwrap();
     db::set_setting(&conn, KEY_BLOCKED_STATUSES, &serde_json::to_string(&statuses)?)
+}
+
+#[tauri::command]
+pub fn save_sprint_naming(state: State<'_, AppState>, naming: SprintNaming) -> AppResult<()> {
+    let conn = state.db.lock().unwrap();
+    db::set_setting(&conn, KEY_SPRINT_NAMING, &serde_json::to_string(&naming)?)
 }
 
 #[tauri::command]

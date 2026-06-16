@@ -21,6 +21,7 @@ pub const KEY_FIELD_MAPPING: &str = "field_mapping";
 pub const KEY_PROJECTS: &str = "projects";
 pub const KEY_BLOCKED_STATUSES: &str = "blocked_statuses";
 pub const KEY_EPIC_CHILDREN_CLAUSE: &str = "epic_children_clause";
+pub const KEY_SPRINT_NAMING: &str = "sprint_naming";
 
 pub fn load_connection_config(conn: &Connection) -> AppResult<ConnectionConfig> {
     let raw = db::get_setting(conn, KEY_CONNECTION)?

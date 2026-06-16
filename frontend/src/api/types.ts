@@ -32,6 +32,7 @@ export type { SpilloverReport } from "./generated/SpilloverReport";
 export type { Sprint } from "./generated/Sprint";
 export type { SprintCompletionPoint } from "./generated/SprintCompletionPoint";
 export type { SprintDetail } from "./generated/SprintDetail";
+export type { SprintNaming } from "./generated/SprintNaming";
 export type { SprintState } from "./generated/SprintState";
 export type { StatusCategory } from "./generated/StatusCategory";
 export type { StatusEvent } from "./generated/StatusEvent";

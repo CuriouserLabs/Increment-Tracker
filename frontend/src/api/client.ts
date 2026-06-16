@@ -16,6 +16,7 @@ import type {
   SettingsView,
   SpilloverReport,
   SprintCompletionPoint,
+  SprintNaming,
   SprintDetail,
   SyncSummary,
   TestConnectionInput,
@@ -39,6 +40,8 @@ export const api = {
     invoke<void>("save_blocked_statuses", { statuses }),
   saveEpicChildrenClause: (clause: string | null) =>
     invoke<void>("save_epic_children_clause", { clause }),
+  saveSprintNaming: (naming: SprintNaming) =>
+    invoke<void>("save_sprint_naming", { naming }),
   listIncrements: () => invoke<Increment[]>("list_increments"),
   saveIncrement: (input: IncrementInput) => invoke<Increment>("save_increment", { input }),
   deleteIncrement: (id: number) => invoke<void>("delete_increment", { id }),
