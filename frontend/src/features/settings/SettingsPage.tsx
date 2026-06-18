@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
 import { useSettings } from "@/api/queries";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ConnectionSection } from "./ConnectionSection";
 import { FieldMappingSection } from "./FieldMappingSection";
 import { IncrementsSection } from "./IncrementsSection";
@@ -15,6 +16,7 @@ export function SettingsPage() {
   const [clause, setClause] = useState<string | null>(null);
   const [sprintPattern, setSprintPattern] = useState<string | null>(null);
   const [sprintsPer, setSprintsPer] = useState<string | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
 
   if (isLoading) return <div className="empty">Loading settings…</div>;
   if (error) return <div className="error-banner">{String(error)}</div>;
@@ -40,7 +42,7 @@ export function SettingsPage() {
   };
 
   const clearData = async () => {
-    if (!confirm("Clear all locally cached Jira data? Settings and credentials are kept.")) return;
+    setConfirmClear(false);
     await api.clearLocalData();
     qc.invalidateQueries();
   };
@@ -113,12 +115,22 @@ export function SettingsPage() {
               Issues, epics, sprints and snapshots are cached in SQLite so the app opens
               instantly and works offline. The PAT lives only in the OS keychain.
             </p>
-            <button className="btn danger" onClick={clearData}>
+            <button className="btn danger" onClick={() => setConfirmClear(true)}>
               Clear local data
             </button>
           </div>
         </>
       )}
+
+      <ConfirmDialog
+        open={confirmClear}
+        title="Clear local data?"
+        message="This removes all locally cached Jira data — issues, epics, sprints and snapshots. Your settings and credentials are kept, and the next sync re-fetches everything."
+        confirmLabel="Clear data"
+        danger
+        onConfirm={clearData}
+        onCancel={() => setConfirmClear(false)}
+      />
     </div>
   );
 }
