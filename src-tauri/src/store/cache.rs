@@ -75,18 +75,11 @@ pub fn upsert_increment(
 }
 
 pub fn delete_increment(conn: &Connection, id: i64) -> AppResult<()> {
-    conn.execute(
-        "DELETE FROM issues WHERE epic_key IN (SELECT key FROM epics WHERE increment_id = ?1)",
-        [id],
-    )?;
-    conn.execute(
-        "DELETE FROM issue_sprints WHERE issue_key NOT IN (SELECT key FROM issues)",
-        [],
-    )?;
-    conn.execute(
-        "DELETE FROM status_events WHERE issue_key NOT IN (SELECT key FROM issues)",
-        [],
-    )?;
+    // Everything is keyed by increment_id, so removal is a clean per-increment
+    // sweep that can't disturb another increment's cached rows.
+    conn.execute("DELETE FROM issue_sprints WHERE increment_id = ?1", [id])?;
+    conn.execute("DELETE FROM status_events WHERE increment_id = ?1", [id])?;
+    conn.execute("DELETE FROM issues WHERE increment_id = ?1", [id])?;
     conn.execute("DELETE FROM epics WHERE increment_id = ?1", [id])?;
     conn.execute("DELETE FROM snapshots WHERE increment_id = ?1", [id])?;
     conn.execute("DELETE FROM sync_state WHERE increment_id = ?1", [id])?;
@@ -114,6 +107,7 @@ pub fn save_sync_result(
     let tx = conn.transaction()?;
 
     // Epics that vanished from the JQL stay visible, badged "removed from plan".
+    // Identity is (increment_id, key), so this only ever touches this increment.
     tx.execute(
         "UPDATE epics SET removed_from_plan = 1 WHERE increment_id = ?1",
         [increment_id],
@@ -122,7 +116,7 @@ pub fn save_sync_result(
         tx.execute(
             "INSERT INTO epics(key, increment_id, name, owner, sp, start_date, end_date, status_category, carried_from, removed_from_plan)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,0)
-             ON CONFLICT(key) DO UPDATE SET increment_id=?2, name=?3, owner=?4, sp=?5,
+             ON CONFLICT(increment_id, key) DO UPDATE SET name=?3, owner=?4, sp=?5,
                start_date=?6, end_date=?7, status_category=?8, carried_from=?9, removed_from_plan=0",
             params![
                 e.key,
@@ -138,29 +132,21 @@ pub fn save_sync_result(
         )?;
     }
 
-    // Replace issue data for every epic of this increment.
-    tx.execute(
-        "DELETE FROM issue_sprints WHERE issue_key IN
-           (SELECT key FROM issues WHERE epic_key IN (SELECT key FROM epics WHERE increment_id = ?1))",
-        [increment_id],
-    )?;
-    tx.execute(
-        "DELETE FROM status_events WHERE issue_key IN
-           (SELECT key FROM issues WHERE epic_key IN (SELECT key FROM epics WHERE increment_id = ?1))",
-        [increment_id],
-    )?;
-    tx.execute(
-        "DELETE FROM issues WHERE epic_key IN (SELECT key FROM epics WHERE increment_id = ?1)",
-        [increment_id],
-    )?;
+    // Replace this increment's issue data wholesale. Scoped strictly by
+    // increment_id, so syncing one increment never deletes another's rows
+    // (even when a Jira issue is shared across increments).
+    tx.execute("DELETE FROM issue_sprints WHERE increment_id = ?1", [increment_id])?;
+    tx.execute("DELETE FROM status_events WHERE increment_id = ?1", [increment_id])?;
+    tx.execute("DELETE FROM issues WHERE increment_id = ?1", [increment_id])?;
 
     for i in issues {
         tx.execute(
-            "INSERT INTO issues(key, epic_key, summary, sp, effective_sp, sp_imputed, status, status_category,
+            "INSERT INTO issues(key, increment_id, epic_key, summary, sp, effective_sp, sp_imputed, status, status_category,
                 resolution, descoped, blocked, assignee, created, done_at, reopened, current_sprint_id, spill_count)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
             params![
                 i.key,
+                increment_id,
                 i.epic_key,
                 i.summary,
                 i.sp,
@@ -181,9 +167,10 @@ pub fn save_sync_result(
         )?;
         for l in &i.sprints {
             tx.execute(
-                "INSERT OR REPLACE INTO issue_sprints(issue_key, sprint_id, was_committed, added_mid_sprint, done_at_close)
-                 VALUES (?1,?2,?3,?4,?5)",
+                "INSERT OR REPLACE INTO issue_sprints(increment_id, issue_key, sprint_id, was_committed, added_mid_sprint, done_at_close)
+                 VALUES (?1,?2,?3,?4,?5,?6)",
                 params![
+                    increment_id,
                     i.key,
                     l.sprint_id,
                     l.was_committed as i64,
@@ -194,8 +181,8 @@ pub fn save_sync_result(
         }
         for ev in &i.status_events {
             tx.execute(
-                "INSERT INTO status_events(issue_key, at, from_category, to_category) VALUES (?1,?2,?3,?4)",
-                params![i.key, ev.at.to_rfc3339(), ev.from.as_str(), ev.to.as_str()],
+                "INSERT INTO status_events(increment_id, issue_key, at, from_category, to_category) VALUES (?1,?2,?3,?4,?5)",
+                params![increment_id, i.key, ev.at.to_rfc3339(), ev.from.as_str(), ev.to.as_str()],
             )?;
         }
     }
@@ -272,7 +259,7 @@ pub fn load_bundle(conn: &Connection, increment_id: i64) -> AppResult<IncrementB
         "SELECT i.key, i.epic_key, i.summary, i.sp, i.effective_sp, i.sp_imputed, i.status, i.status_category,
                 i.resolution, i.descoped, i.blocked, i.assignee, i.created, i.done_at, i.reopened,
                 i.current_sprint_id, i.spill_count
-         FROM issues i WHERE i.epic_key IN (SELECT key FROM epics WHERE increment_id = ?1)",
+         FROM issues i WHERE i.increment_id = ?1",
     )?;
     let mut issues: Vec<Issue> = stmt
         .query_map([increment_id], |row| {
@@ -303,14 +290,16 @@ pub fn load_bundle(conn: &Connection, increment_id: i64) -> AppResult<IncrementB
     // Attach sprint links and status events.
     {
         let mut link_stmt = conn.prepare(
-            "SELECT sprint_id, was_committed, added_mid_sprint, done_at_close FROM issue_sprints WHERE issue_key = ?1",
+            "SELECT sprint_id, was_committed, added_mid_sprint, done_at_close
+             FROM issue_sprints WHERE increment_id = ?1 AND issue_key = ?2",
         )?;
         let mut ev_stmt = conn.prepare(
-            "SELECT at, from_category, to_category FROM status_events WHERE issue_key = ?1 ORDER BY at",
+            "SELECT at, from_category, to_category
+             FROM status_events WHERE increment_id = ?1 AND issue_key = ?2 ORDER BY at",
         )?;
         for issue in issues.iter_mut() {
             issue.sprints = link_stmt
-                .query_map([&issue.key], |row| {
+                .query_map(params![increment_id, &issue.key], |row| {
                     Ok(IssueSprint {
                         sprint_id: row.get(0)?,
                         was_committed: row.get::<_, i64>(1)? != 0,
@@ -320,7 +309,7 @@ pub fn load_bundle(conn: &Connection, increment_id: i64) -> AppResult<IncrementB
                 })?
                 .collect::<Result<_, _>>()?;
             issue.status_events = ev_stmt
-                .query_map([&issue.key], |row| {
+                .query_map(params![increment_id, &issue.key], |row| {
                     Ok(StatusEvent {
                         at: parse_dt_col(row.get::<_, String>(0)?),
                         from: StatusCategory::parse(&row.get::<_, String>(1)?),
@@ -462,5 +451,51 @@ mod tests {
         let bundle = load_bundle(&conn, inc.id).unwrap();
         assert_eq!(bundle.epics.len(), 1);
         assert!(bundle.epics[0].removed_from_plan);
+    }
+
+    #[test]
+    fn increments_sharing_an_epic_and_issue_stay_isolated() {
+        // Defects A & B: a carried-forward epic (and its issue) legitimately
+        // belongs to two increments at once. Syncing one must neither steal the
+        // epic from the other (A) nor collide on the shared issue key (B).
+        let mut conn = open_in_memory().unwrap();
+        let a = upsert_increment(&conn, None, "Inc 24", "x", date(2025, 10, 1), date(2025, 12, 26)).unwrap();
+        let b = upsert_increment(&conn, None, "Inc 25", "y", date(2026, 1, 5), date(2026, 3, 27)).unwrap();
+
+        let epic = epic("SHARED-1", "Carried epic");
+        let issue_in = |cat| {
+            let mut i = issue("WORK-9", "SHARED-1", 5.0, cat);
+            i.sprints = vec![IssueSprint {
+                sprint_id: 1,
+                was_committed: true,
+                added_mid_sprint: false,
+                done_at_close: None,
+            }];
+            i
+        };
+        let sprints = vec![sprint(1, "24:6", SprintState::Active, dt(2026, 1, 5), dt(2026, 1, 18))];
+
+        // Sync the same epic/issue into both increments.
+        save_sync_result(&mut conn, a.id, &[epic.clone()], &[issue_in(InProgress)], &sprints).unwrap();
+        save_sync_result(&mut conn, b.id, &[epic.clone()], &[issue_in(Done)], &sprints).unwrap();
+
+        // Each increment keeps its own copy (A: no theft).
+        let ba = load_bundle(&conn, a.id).unwrap();
+        let bb = load_bundle(&conn, b.id).unwrap();
+        assert_eq!(ba.epics.len(), 1);
+        assert_eq!(bb.epics.len(), 1);
+        assert_eq!(ba.issues.len(), 1);
+        assert_eq!(bb.issues.len(), 1);
+        // ...with independent data (the issue's status differs per increment).
+        assert_eq!(ba.issues[0].status_category, InProgress);
+        assert_eq!(bb.issues[0].status_category, Done);
+        assert_eq!(ba.issues[0].sprints.len(), 1);
+
+        // Re-syncing one increment (B) must not crash on the shared key (B) and
+        // must leave the other increment (A) untouched.
+        save_sync_result(&mut conn, b.id, &[epic.clone()], &[issue_in(InProgress)], &sprints).unwrap();
+        let ba2 = load_bundle(&conn, a.id).unwrap();
+        assert_eq!(ba2.issues.len(), 1);
+        assert_eq!(ba2.issues[0].status_category, InProgress); // A still has its own row
     }
 }
