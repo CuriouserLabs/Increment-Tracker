@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
 import { keys, useSaveIncrement } from "@/api/queries";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import type { Increment, JqlValidation, SettingsView } from "@/api/types";
 
 const JQL_TEMPLATE = (projects: string[], name: string) =>
@@ -18,6 +19,7 @@ export function IncrementsSection({ settings }: { settings: SettingsView }) {
   const [validation, setValidation] = useState<JqlValidation | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<Increment | null>(null);
 
   const startNew = () =>
     setEditing({
@@ -59,8 +61,10 @@ export function IncrementsSection({ settings }: { settings: SettingsView }) {
     }
   };
 
-  const remove = async (id: number) => {
-    if (!confirm("Delete this increment and its cached data?")) return;
+  const remove = async () => {
+    if (!pendingDelete) return;
+    const id = pendingDelete.id;
+    setPendingDelete(null);
     await api.deleteIncrement(id);
     qc.invalidateQueries({ queryKey: keys.settings });
   };
@@ -79,7 +83,7 @@ export function IncrementsSection({ settings }: { settings: SettingsView }) {
           <button className="btn secondary small" onClick={() => { setEditing(inc); setValidation(null); }}>
             Edit
           </button>
-          <button className="btn danger small" onClick={() => remove(inc.id)}>
+          <button className="btn danger small" onClick={() => setPendingDelete(inc)}>
             Delete
           </button>
         </div>
@@ -150,6 +154,21 @@ export function IncrementsSection({ settings }: { settings: SettingsView }) {
           + New increment
         </button>
       )}
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title="Delete increment?"
+        message={
+          <>
+            Delete <strong>{pendingDelete?.name}</strong> and its cached data? This
+            can't be undone, but you can recreate the increment and re-sync.
+          </>
+        }
+        confirmLabel="Delete"
+        danger
+        onConfirm={remove}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }

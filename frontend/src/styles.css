@@ -324,3 +324,36 @@ details.drawer summary { cursor: pointer; color: var(--text-dim); font-size: 13p
 .form-grid { display: grid; grid-template-columns: 160px 1fr; gap: 10px 14px; align-items: center; max-width: 640px; }
 .form-grid label { color: var(--text-dim); font-size: 13px; }
 .checks { display: flex; flex-wrap: wrap; gap: 8px; max-height: 180px; overflow-y: auto; }
+
+/* ---------------------------------------------------------------- modal */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(7, 9, 14, 0.6);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: modal-fade 0.12s ease-out;
+}
+.modal {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  padding: 20px;
+  width: 420px;
+  max-width: calc(100vw - 40px);
+  animation: modal-pop 0.12s ease-out;
+}
+.modal h3 { margin: 0 0 10px; font-size: 15px; font-weight: 650; }
+.modal-body { color: var(--text-dim); font-size: 13.5px; line-height: 1.5; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
+@keyframes modal-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modal-pop {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
